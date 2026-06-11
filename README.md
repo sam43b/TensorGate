@@ -105,7 +105,7 @@ Define parameter bundles (temperature, top_k, top_p, etc.) for quick switching b
 ## File structure
 
 ```
-llama_cpp_mgmt/
+TensorGate/
 ├── app.py                    # Flask app — routes, process management
 ├── .env                      # Your active configuration
 ├── env.example               # Template — copy to .env

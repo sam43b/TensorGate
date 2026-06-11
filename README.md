@@ -1,6 +1,6 @@
 # TensorGate — Local LLM Server Manager
 
-A web dashboard that lets you **start, stop, and monitor** local AI server instances — all from one place. Built on **[llama.cpp](https://github.com/ggerganov/llama.cpp)**.
+A web dashboard that lets you **start, stop, and monitor** local AI server instances — all from one place. Built on top of **[llama.cpp](https://github.com/ggerganov/llama.cpp)**.
 
 ---
 

@@ -1,0 +1,256 @@
+# TensorGate
+
+A Flask-based web dashboard for managing local LLM inference servers built on **llama.cpp**. It provides unified control over three server types — LLM chat, Embedding, and Reranker — along with custom application management, live log monitoring, system resource dashboards, and binary auto-update functionality.
+
+## Overview
+
+| Component | Purpose |
+|-----------|---------|
+| **LLM Server** | General-purpose chat/completion via `llama-server` |
+| **Embedding Server** | Vector embedding generation |
+| **Reranker Server** | Cross-encoder / bi-encoder reranking |
+| **Custom Apps** | User-defined scripts or binaries, managed through `custom_apps.cfg` |
+| **Binary Updater** | Automatic download and extraction of latest llama.cpp Ubuntu-Vulkan binaries from GitHub |
+
+All three server types share the same `llama-server` binary, launched with different flags (`--embedding`, `--reranking`, or default chat mode).
+
+## Project Structure
+
+```
+llama_cpp_mgmt_dev/
+├── app.py                         # Main Flask application (routes, process mgmt)
+├── .env                           # Active environment / configuration
+├── env.example                    # Template .env file
+├── requirements.txt               # Python dependencies
+├── custom_apps.cfg                # Registered custom apps (name=path|description)
+├── presets.cfg                    # Generation preset configurations
+│
+├── src/
+│   ├── tg_config.py               # Global paths, model dirs, context/KV/cache options
+│   ├── tg_models.py               # GGUF model discovery (LLM, embedding, reranker)
+│   ├── tg_settings.py             # .env file CRUD (read/update/delete variables)
+│   ├── tg_system_stats.py         # CPU/RAM/GPU monitoring (psutil, GPUtil, py3nvml)
+│   ├── tg_log_manager.py          # Threaded log readers, deque buffers, progress tracking
+│   ├── tg_custom_apps.py          # Custom app lifecycle (start/stop/parse/save/remove)
+│   └── tg_llamacpp_update.py     # llama.cpp binary download & extract from GitHub
+│
+├── public/
+│   ├── index.html                 # Single-page application template (Flask rendered)
+│   └── static/
+│       ├── app.js                 # Core UI logic: form handling, process control, settings
+│       ├── dashboard.js           # Lazy-loaded log dashboard (task parsing, timing stats)
+│       └── styles.css             # Dark/light theme CSS with CSS variables
+```
+
+## Configuration
+
+### Environment Variables (`.env`)
+
+All paths and ports are externalized through `.env` (loaded via `python-dotenv`). The following variables are recognized:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_DIR` | `~/llm` | Directory containing LLM `.gguf` models |
+| `EMBEDDING_MODEL_DIR` | `~/embeding` | Directory for embedding models |
+| `RERANKER_MODEL_DIR` | `~/reranker` | Directory for reranker models |
+| `LLAMA_CPP_PATH` | `~/Appz/llama_cpp/build/bin/llama-server` | Path to the `llama-server` binary |
+| `CACHE_DIR` | `~/.cache/llama` | Cache directory (cleaned on shutdown) |
+| `LLM_DEFAULT_PORT` | `8080` | Default port for LLM server |
+| `EMBEDDING_DEFAULT_PORT` | `8081` | Default port for Embedding server |
+| `RERANKER_DEFAULT_PORT` | `8082` | Default port for Reranker server |
+| `FLASK_APP_PORT` | `5000` | Port for the Flask web UI |
+| `PROJECT_DIR` | `~/llama` | Project base directory |
+| `LLM_DEFAULT_MTP` | `--spec-type draft-mtp --spec-draft-n-max 3` | Default MTP speculator args for models with `-MTP-` in name |
+
+### Custom Apps (`custom_apps.cfg`)
+
+Each line defines a custom application. Format:
+
+```
+APP_NAME=/path/to/executable|Display Description
+```
+
+Lines starting with `#` are comments. The app ID is derived from the key before `=`.
+
+### Presets (`presets.cfg`)
+
+Generation parameter presets for LLM inference. Format:
+
+```
+name|temperature|top_p|top_k|min_p|presence_penalty|repetition_penalty|description
+```
+
+Built-in presets include: `default`, `creative`, `coding`, `instruct_general`, `instruct_reasoning`, `Qwen_3.x`, `WorldSim_3.6`, and several persona presets ("The Professor", "The Storyteller", etc.).
+
+### Context & Cache Options (in `tg_config.py`)
+
+| Option | Values |
+|--------|--------|
+| **Context sizes** | `4k`, `8k`, `16k`, `24k`, `32k`, `64k`, `128k`, `256k`, `512k`, `1M` |
+| **KV Cache types** | `F32`, `F16`, `BF16`, `Q8_0`, `Q5_1`, `Q5_0`, `Q4_1`, `IQ4_NL`, `Q4_0` |
+| **Pooling (embeddings)** | `none`, `mean`, `cls`, `last`, `rank` |
+
+## Backend Modules
+
+### `tg_config.py`
+Central configuration — model directories, llama.cpp binary path, context sizes, KV cache types, and pooling options.
+
+### `tg_models.py`
+Discovers `.gguf` files across configured model directories. Supports:
+- Standard LLM models (excludes mmproj files)
+- Vision models (auto-detects matching `mmproj*.gguf` files in the same folder)
+- Embedding models (dedicated directory + main directory with "embed" in name)
+- Reranker models (dedicated directory)
+
+Returns sorted lists of model metadata (`path`, `display_name`, `is_vision`, `mmproj_path`, `full_path`).
+
+### `tg_settings.py`
+CRUD operations for the `.env` file: `read_env_file()`, `update_env_variable()`, `delete_env_variable()`. Preserves comment lines around modified variables.
+
+### `tg_system_stats.py`
+Collects CPU usage, RAM/swap, and GPU telemetry. GPU detection uses a cascade of three backends:
+1. **GPUtil** (preferred)
+2. **py3nvml** (NVIDIA fallback)
+3. **Linux DRM sysfs** (AMD GPU fallback — reads `gpu_busy_percent`, `temp1_input`, `mem_info_vram_used/total` from `/sys/class/drm/`)
+
+### `tg_log_manager.py`
+Threaded log readers that spawn daemon threads to read `stdout` and `stderr` from each process, appending to `deque(maxlen=1000)` buffers and `queue.Queue` objects for the UI. Parses llama.cpp log output to track:
+- Prompt processing progress (regex extraction of `progress = X`)
+- Generation state machine (`idle` → `prompt_processing` → `generating` → `idle`)
+- Timing signals (`prompt eval time`, `n_decoded`, `all slots are idle`)
+
+State timeouts: idle after 30s of no prompt signal and 5s of no eval signal; generating idle after 10s of no decode/eval signal.
+
+### `tg_custom_apps.py`
+Manages the custom apps lifecycle:
+- `parse_custom_apps_env()` — reads `custom_apps.cfg`
+- `save_custom_app()` / `remove_custom_app()` — modifies `custom_apps.cfg`
+- Preset loading from `presets.cfg`
+- Global process references: `llm_process`, `embedding_process`, `reranker_process`, `custom_apps_processes`
+
+### `tg_llamacpp_update.py`
+Downloads the latest Ubuntu-Vulkan binary from the ggerganov/llama.cpp GitHub releases page, extracts it safely, copies binaries to the destination directory, sets executable permissions, and cleans up the archive. Supports `log_callback` and `progress_callback` hooks for UI integration.
+
+## API Endpoints
+
+### Server Control
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/start` | Start LLM chat server |
+| `POST` | `/stop` | Stop LLM chat server |
+| `POST` | `/embedding/start` | Start embedding server |
+| `POST` | `/embedding/stop` | Stop embedding server |
+| `POST` | `/reranker/start` | Start reranker server |
+| `POST` | `/reranker/stop` | Stop reranker server |
+| `GET`  | `/status` | Check running state of all servers |
+
+### Logs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/logs` | LLM logs (consuming — empties the queue) |
+| `GET`  | `/logs/buffer` | LLM logs (non-consuming) |
+| `GET`  | `/embedding/logs` | Embedding logs (consuming) |
+| `GET`  | `/embedding/logs/buffer` | Embedding logs (non-consuming) |
+| `GET`  | `/reranker/logs` | Reranker logs (consuming) |
+| `GET`  | `/reranker/logs/buffer` | Reranker logs (non-consuming) |
+
+### Progress & Status
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/prompt-progress` | Current prompt processing progress + generation state |
+| `GET`  | `/presets` | Preset configurations as JSON |
+| `GET`  | `/system` | CPU, RAM, GPU system statistics |
+
+### Custom Apps
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/custom-apps` | List all custom apps with running status |
+| `POST` | `/custom-apps/save` | Register a new custom app |
+| `POST` | `/custom-apps/delete` | Remove a custom app |
+| `POST` | `/custom-apps/start` | Start a custom app |
+| `POST` | `/custom-apps/stop` | Stop a custom app |
+
+### Binary Updates
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/update-binaries/start` | Start llama.cpp binary update |
+| `GET`  | `/update-binaries/logs` | Update progress logs |
+| `GET`  | `/update-binaries/status` | Update progress percentage and running state |
+
+### Settings
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/settings/env` | List all .env variables |
+| `POST` | `/settings/env` | Create or update an .env variable |
+| `DELETE` | `/settings/env/<key>` | Delete an .env variable |
+| `POST` | `/settings/save` | Save UI settings to a session cookie |
+| `GET`  | `/settings/load` | Load UI settings from cookie |
+| `POST` | `/settings/clear` | Clear saved UI settings |
+
+## Frontend
+
+The UI is a single-page application rendered from `public/index.html` with injected context (context options, KV cache options) via the Flask template engine.
+
+### `app.js` (Core UI)
+- Form management for LLM, Embedding, and Reranker servers
+- Preset mode loading and application (populates temperature, top_k, etc.)
+- Auto-save of all form fields to session cookie with 300ms debounce
+- Theme toggle (dark/light) persisted to localStorage
+- Real-time log polling (consumes log queues via `/logs`, `/embedding/logs`, etc.)
+- Process control: start/stop buttons with status indicators
+- Custom app management panel
+- Binary update progress bar
+- Settings panel: edit .env variables, save/clear UI settings
+
+### `dashboard.js` (Lazy-loaded Log Dashboard)
+Loads on demand via tab switch. Parses llama.cpp log output into structured task data:
+- Task launch detection (`update_slots: id X task Y n_tokens = N`)
+- Prompt progress extraction per task
+- Checkpoint tracking (`created context checkpoint X of Y`)
+- Timing extraction (prompt eval time, decode time, tokens/sec)
+- Builds a per-task timeline with batch history, checkpoint sizes, and performance metrics
+- Auto-refreshes every 60 seconds
+
+### `styles.css`
+CSS custom properties for dark/light theming. Responsive grid layout for panels, cards, and form elements.
+
+## Launch
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Copy and edit the example .env
+cp env.example .env
+# Edit .env to match your paths
+
+# 3. Run the server
+python app.py
+```
+
+The web UI will be available at `http://0.0.0.0:5000`.
+
+## Shutdown
+
+On exit (Ctrl+C or process termination), the Flask app registers an `atexit` handler that:
+1. Sends `SIGTERM` to all tracked processes (LLM, embedding, reranker, custom apps)
+2. Runs `rm -rf` on the cache directory
+3. Runs `pkill -f "llama-server"` as a safety net
+
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `flask>=2.0.0` | Web framework (Flask — Flask variant) |
+| `psutil>=5.9.0` | CPU/RAM/swap system monitoring |
+| `gputil>=1.4.0` | NVIDIA GPU monitoring |
+| `python-dotenv` | `.env` file loading |
+| `requests` | GitHub API / binary download |
+| `GPUtil` (optional) | GPU monitoring fallback |
+| `py3nvml` (optional) | NVIDIA GPU monitoring fallback |

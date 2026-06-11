@@ -4,6 +4,12 @@ A web dashboard that lets you **start, stop, and monitor** local AI server insta
 
 ---
 
+## Screenshot
+
+![TensorGate Dashboard](screenshot/00.png)
+
+---
+
 ## What can it do?
 
 | Feature | Description |
@@ -34,12 +40,6 @@ python app.py
 ```
 
 Open **[http://localhost:5000](http://localhost:5000)** in your browser.
-
----
-
-## Screenshot
-
-![TensorGate Dashboard](screenshot/00.png)
 
 ---
 
@@ -79,7 +79,8 @@ Open **[http://localhost:5000](http://localhost:5000)** in your browser.
 | `EMBEDDING_DEFAULT_PORT` | `8081` | Embedding server port |
 | `RERANKER_DEFAULT_PORT` | `8082` | Reranker server port |
 | `FLASK_APP_PORT` | `5000` | Web dashboard port |
-| `PROJECT_DIR` | `~/llama` | Project base directory |
+| `LLM_DEFAULT_Flags` | `--no-mmap --jinja -cram -1 --threads-http 2` | LLama.cpp Default Flags |
+| `LLM_DEFAULT_MTP` | `--spec-type draft-mtp --spec-draft-n-max 3` | MTP flags applied to any gguf who has '-MTP-' or '-qat-' on its name |
 
 ### Custom Apps (`custom_apps.cfg`)
 

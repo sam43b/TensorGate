@@ -1,6 +1,6 @@
 # TensorGate — Local LLM Server Manager
 
-A web dashboard that lets you **start, stop, and monitor** local AI server instances — all from one place. Built on to of **[llama.cpp](https://github.com/ggerganov/llama.cpp)**.
+A web dashboard that lets you **start, stop, and monitor** local AI server instances — all from one place. Built on top of **[llama.cpp](https://github.com/ggerganov/llama.cpp)**.
 
 ---
 
@@ -184,6 +184,31 @@ All endpoints return JSON. Base path: `http://localhost:5000`
 | `GET`  | `/settings/env` | List `.env` variables |
 | `POST` | `/settings/env` | Create or update a variable |
 | `DELETE` | `/settings/env/<key>` | Delete a variable |
+
+---
+
+## Install as systemd service
+
+Automatically start the dashboard on boot:
+
+```bash
+sudo bash install-service.sh
+```
+
+This creates `/etc/systemd/system/llama-cpp-mgmt.service`, installs Python dependencies into a venv, and enables auto-start.
+
+**Edit paths in `install-service.sh`** (the `Environment` lines) before running — set `MODEL_DIR`, `LLAMA_CPP_PATH`, etc. to match your machine.
+
+### Service management
+
+```bash
+systemctl status llama-cpp-mgmt      # check status
+journalctl -u llama-cpp-mgmt -f      # live logs
+systemctl restart llama-cpp-mgmt     # restart
+systemctl stop llama-cpp-mgmt        # stop
+```
+
+The service auto-restarts on failure (5s delay).
 
 ---
 

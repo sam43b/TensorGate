@@ -187,6 +187,31 @@ All endpoints return JSON. Base path: `http://localhost:5000`
 
 ---
 
+## Install as systemd service
+
+Automatically start the dashboard on boot:
+
+```bash
+sudo bash install-service.sh
+```
+
+This creates `/etc/systemd/system/llama-cpp-mgmt.service`, installs Python dependencies into a venv, and enables auto-start.
+
+**Edit paths in `install-service.sh`** (the `Environment` lines) before running — set `MODEL_DIR`, `LLAMA_CPP_PATH`, etc. to match your machine.
+
+### Service management
+
+```bash
+systemctl status llama-cpp-mgmt      # check status
+journalctl -u llama-cpp-mgmt -f      # live logs
+systemctl restart llama-cpp-mgmt     # restart
+systemctl stop llama-cpp-mgmt        # stop
+```
+
+The service auto-restarts on failure (5s delay).
+
+---
+
 ## Shutdown behavior
 
 When you stop the dashboard (Ctrl+C or kill), TensorGate:

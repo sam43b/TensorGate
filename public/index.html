@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦙 TensorGate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script>
+        // Context options mapping - passed from Flask template context
+        window.contextOptions = {{ context_options | tojson }};
+        window.kv_cache_options = {{ kv_cache_options | tojson }};
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🦙 TensorGate</h1>
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+                <span id="themeIcon">☀️</span>
+                <span id="themeText">Light Mode</span>
+            </button>
+        </div>
+
+        <!-- Message Display -->
+        <div id="message" class="hidden"></div>
+
+        <!-- Model Control Tabs -->
+        <div class="panel">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('llm', event)">🤖 LLM Models</button>
+                <button class="tab" onclick="switchTab('embedding',event)">🔤 Embedding Models</button>
+                <button class="tab" onclick="switchTab('reranker',event)">🔍 Reranker Models</button>
+                <button class="tab" onclick="switchTab('custom',event)">🚀 Custom Apps</button>
+                <button class="tab" onclick="switchTab('dashboard',event)">📊 Dashboard</button>
+                <button class="tab" onclick="switchTab('settings',event)">⚙️ Settings</button>
+            </div>
+
+            <!-- LLM Tab -->
+            <div id="llm-tab" class="tab-content active">
+                <h2>⚙️ LLM Configuration</h2>
+
+                <div class="status-bar">
+                    <span id="llmStatusDot" class="status-indicator stopped"></span>
+                    <span id="llmStatus" class="status-text stopped">LLM Model is stopped</span>
+                </div>
+
+                <form id="llmForm">
+                    <div class="form-grid">
+                        <div class="form-group model-select">
+                            <label for="model">Select Model</label>
+                            <select name="model" id="model" required>
+                                <option value="">-- Choose a model --</option>
+                                {% for model in models %}
+                                <option value="{{ model.path }}" {% if model.is_vision %}data-vision="true"{% endif %}>
+                                    {{ model.display_name }}{% if model.is_vision %} 👁️{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="info-text" id="model-badge-container"></div>
+                        </div>
+
+                        <!-- the preset mode select section in the LLM tab -->
+                        <div class="form-group">
+                            <label for="preset_mode">Preset Mode</label>
+                            <select name="preset_mode" id="preset_mode" onchange="applyPresetMode()">
+                                {% for preset_id, preset in presets.items() %}
+                                <option value="{{ preset_id }}" {% if preset_id == 'default' %}selected{% endif %}>
+                                    {{ preset.description.split('•')[0].strip() }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="info-text" id="preset-description">{{ presets['default']['description'] if 'default' in presets else 'Default preset' }}</div>
+                        </div>
+
+                        <input type="hidden" name="temperature" id="temperature" value="0.8">
+                        <input type="hidden" name="top_p" id="top_p" value="0.95">
+                        <input type="hidden" name="top_k" id="top_k" value="40">
+                        <input type="hidden" name="min_p" id="min_p" value="0.0">
+                        <input type="hidden" name="presence_penalty" id="presence_penalty" value="0.0">
+                        <input type="hidden" name="repetition_penalty" id="repetition_penalty" value="1.0">
+
+                        <div class="form-group">
+                            <label>Context Size</label>
+                            <div class="context-options">
+                                {% for key, value in context_options.items() %}
+                                <button type="button" class="context-btn {% if key == '8k' %}active{% endif %}"
+                                        data-value="{{ key }}" onclick="selectContext('{{ key }}')">
+                                    {{ key.upper() }}
+                                </button>
+                                {% endfor %}
+                            </div>
+                            <input type="hidden" name="c" id="context" value="8k">
+                            <div class="info-text">Selected: <span id="context-display">8192 tokens</span></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="threads">Threads</label>
+                            <input type="number" name="threads" id="threads" value="4" min="1" max="64">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ngl">GPU Layers (-ngl)</label>
+                            <input type="number" name="ngl" id="ngl" value="999" min="0" max="999">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="port">Port</label>
+                            <input type="number" name="port" id="port" value="8080" min="1024" max="65535">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="host">Host</label>
+                            <input type="text" name="host" id="host" value="0.0.0.0">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sm">Split Mode (-sm)</label>
+                            <select name="sm" id="sm">
+                                <option value="layer" selected>Layer (default)</option>
+                                <option value="none">None (single GPU)</option>
+                                <option value="row">Row</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="np">Parallel Sequences (-np)</label>
+                            <input type="number" name="np" id="np" value="1" min="1" max="16">
+                        </div>
+
+                        <div class="form-group" id="cache-type-container">
+                            <label>KV Cache Type</label>
+                            <div class="context-options">
+                                {% for key, value in kv_cache_options.items() %}
+                                <button type="button" class="context-btn {% if key == 'Q8_0' %}active{% endif %}" 
+                                        data-value="{{ value }}" onclick="selectCacheType('{{ value }}')">
+                                    {{ key }}
+                                </button>
+                                {% endfor %}
+                            </div>
+                            <input type="hidden" name="cache_type_k" id="cache_type_k" value="q8_0">
+                            <input type="hidden" name="cache_type_v" id="cache_type_v" value="q8_0">
+                            <div class="info-text">Selected: <span id="cache-type-display">q8_0 </span> (applies to both K and V)</div>
+                        </div>
+
+                       <div class="form-group">
+                            <label style="font-weight: bold;">Options</label>
+                            
+                            <div class="options-container">
+                                <label class="checkbox-item">
+                                    <span>Swa-full on?</span>
+                                    <input type="checkbox" name="swa-full" id="swa-full" checked>
+                                </label>
+
+                                 <label class="checkbox-item">
+                                    <span>Vision off?</span>
+                                    <input type="checkbox" name="vision-off" id="vision-off">
+                                </label>
+
+                                <label class="checkbox-item">
+                                    <span>Flash-attn on?</span>
+                                    <input type="checkbox" name="flash-attn" id="flash-attn">
+                                </label>
+
+                                <label class="checkbox-item">
+                                    <span>Thinking off?</span>
+                                    <input type="checkbox" name="thinking-off" id="thinking-off">
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button type="submit" id="startBtn" class="btn btn-primary">
+                            <span>▶ Start LLM</span>
+                        </button>
+                        <button type="button" id="stopBtn" class="btn btn-danger" disabled>
+                            <span>⏹ Stop LLM</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="section-divider"></div>
+                    <!-- System Stats Panel -->
+                    <div class="panel">
+                        <h2>📊 System Resources</h2>
+                        <div class="stats-grid" id="systemStats">
+                            <div class="stat-card loading">
+                                <h3>CPU Usage</h3>
+                                <div class="value">--</div>
+                            </div>
+                            <div class="stat-card loading memory">
+                                <h3>Memory Usage</h3>
+                                <div class="value">--</div>
+                            </div>
+                            <div class="stat-card loading gpu">
+                                <h3>GPU Usage</h3>
+                                <div class="value">--</div>
+                            </div>
+                            <div class="stat-card loading gpu">
+                                <h3>GPU Memory</h3>
+                                <div class="value">--</div>
+                            </div>
+                        </div>
+                         <div class="stats-grid" style="margin-top: 15px; grid-template-columns: 1fr 1fr;">
+                             <div class="stat-card prompt-progress" id="prompt-progress-card">
+                                 <h3>Prompt Processing</h3>
+                                 <div class="progress-bar-container">
+                                     <div class="progress-bar-fill" id="pp-bar" style="width: 0%;"></div>
+                                     <div class="progress-bar-text" id="pp-bar-text">0%</div>
+                                 </div>
+                             </div>
+                             <div class="stat-card context-fill" id="context-fill-card">
+                                 <h3>Context Fill</h3>
+                                 <div class="progress-bar-container">
+                                     <div class="progress-bar-fill" id="cf-bar" style="width: 0%;"></div>
+                                     <div class="progress-bar-text" id="cf-bar-text">0%</div>
+                                 </div>
+                             </div>
+                         </div>
+<div class="stats-grid" style="margin-top: 10px;">
+                              <div class="stat-card details" id="details-card">
+                                  <div class="progress-details">
+                                      <div class="progress-detail-item" style="grid-column: span 2;">
+                                          <span class="progress-label">Status</span>
+                                          <span class="progress-value" id="pp-status">Idle — waiting for prompt</span>
+                                      </div>
+                                      <div class="progress-detail-item">
+                                          <span class="progress-label">Context Size</span>
+                                          <span class="progress-value" id="cf-context">--</span>
+                                      </div>
+                                      <div class="progress-detail-item">
+                                          <span class="progress-label">PP Speed</span>
+                                          <span class="progress-value" id="pp-speed">--</span>
+                                      </div>
+                                      <div class="progress-detail-item">
+                                          <span class="progress-label">Gen Speed</span>
+                                          <span class="progress-value" id="gen-speed">--</span>
+                                      </div>
+                                      <div class="progress-detail-item">
+                                          <span class="progress-label">Elapsed</span>
+                                          <span class="progress-value" id="elapsed">--</span>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+                    </div>
+
+                <div class="section-divider"></div>
+
+                <h2>📜 LLM Server Logs</h2>
+                <div class="log-controls">
+                    <button id="clearLlmLogs" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;">
+                        🗑️ Clear Logs
+                    </button>
+                    <button id="autoScrollLlm" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;" data-enabled="true">
+                        ⬇️ Auto-scroll: ON
+                    </button>
+                </div>
+                <div class="log-container" id="llmLogsContainer">
+                    <div id="llm-logs">
+                        <div class="log-entry system"><span class="timestamp">--:--:--</span> <span class="content">Waiting for LLM to start...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Embedding Tab -->
+            <div id="embedding-tab" class="tab-content">
+                <h2>🔤 Embedding Model Configuration</h2>
+
+                <div class="status-bar">
+                    <span id="embStatusDot" class="status-indicator stopped"></span>
+                    <span id="embStatus" class="status-text stopped">Embedding Model is stopped</span>
+                </div>
+
+                <form id="embeddingForm">
+                    <div class="form-grid">
+                        <div class="form-group model-select">
+                            <label for="embedding_model">Select Embedding Model</label>
+                            <select name="embedding_model" id="embedding_model" required>
+                                <option value="">-- Choose an embedding model --</option>
+                                {% for model in embedding_models %}
+                                <option value="{{ model.path }}">
+                                    {{ model.display_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="info-text" id="embedding-badge-container"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="embedding_port">Port</label>
+                            <input type="number" name="embedding_port" id="embedding_port" value="8081" min="1024" max="65535">
+                            <div class="info-text">Default embedding port: 8081</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="embedding_host">Host</label>
+                            <input type="text" name="embedding_host" id="embedding_host" value="0.0.0.0">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="embedding_threads">Threads (-t)</label>
+                            <input type="number" name="embedding_threads" id="embedding_threads" value="2" min="1" max="64">
+                            <div class="info-text">Recommended: 2 for embedding models</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pooling">Pooling Mode</label>
+                            <select name="pooling" id="pooling">
+                                {% for option in pooling_options %}
+                                <option value="{{ option }}" {% if option == 'last' %}selected{% endif %}>
+                                    {{ option }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="info-text">How to aggregate token embeddings</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ubatch_size">Micro Batch Size (-ub)</label>
+                            <input type="number" name="ubatch_size" id="ubatch_size" value="8192" min="256" max="32768" step="256">
+                            <div class="info-text">Physical batch size for processing</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="embedding_ngl">GPU Layers (-ngl)</label>
+                            <input type="number" name="embedding_ngl" id="embedding_ngl" value="0" min="0" max="999">
+                            <div class="info-text">0 for CPU-only embedding</div>
+                        </div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button type="submit" id="startEmbBtn" class="btn btn-success">
+                            <span>▶ Start Embedding</span>
+                        </button>
+                        <button type="button" id="stopEmbBtn" class="btn btn-danger" disabled>
+                            <span>⏹ Stop Embedding</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="section-divider"></div>
+
+                <h2>📜 Embedding Server Logs</h2>
+                <div class="log-controls">
+                    <button id="clearEmbLogs" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;">
+                        🗑️ Clear Logs
+                    </button>
+                    <button id="autoScrollEmb" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;" data-enabled="true">
+                        ⬇️ Auto-scroll: ON
+                    </button>
+                </div>
+                <div class="log-container" id="embLogsContainer">
+                    <div id="emb-logs">
+                        <div class="log-entry system"><span class="timestamp">--:--:--</span> <span class="content">Waiting for embedding model to start...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reranker Tab -->
+            <div id="reranker-tab" class="tab-content">
+                <h2>🔍 Reranker Model Configuration</h2>
+
+                <div class="status-bar">
+                    <span id="rerankerStatusDot" class="status-indicator stopped"></span>
+                    <span id="rerankerStatus" class="status-text stopped">Reranker Model is stopped</span>
+                </div>
+
+                <form id="rerankerForm">
+                    <div class="form-grid">
+                        <div class="form-group model-select">
+                            <label for="reranker_model">Select Reranker Model</label>
+                            <select name="reranker_model" id="reranker_model" required>
+                                <option value="">-- Choose a reranker model --</option>
+                                {% for model in reranker_models %}
+                                <option value="{{ model.path }}">
+                                    {{ model.display_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="info-text" id="reranker-badge-container"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reranker_port">Port</label>
+                            <input type="number" name="reranker_port" id="reranker_port" value="8082" min="1024" max="65535">
+                            <div class="info-text">Default reranker port: 8082</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reranker_host">Host</label>
+                            <input type="text" name="reranker_host" id="reranker_host" value="0.0.0.0">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reranker_threads">Threads (-t)</label>
+                            <input type="number" name="reranker_threads" id="reranker_threads" value="2" min="1" max="64">
+                            <div class="info-text">Recommended: 2 for reranker models</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reranker_ubatch_size">Micro Batch Size (-ub)</label>
+                            <input type="number" name="ubatch_size" id="reranker_ubatch_size" value="8192" min="256" max="32768" step="256">
+                            <div class="info-text">Physical batch size for processing</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reranker_ngl">GPU Layers (-ngl)</label>
+                            <input type="number" name="reranker_ngl" id="reranker_ngl" value="0" min="0" max="999">
+                            <div class="info-text">0 for CPU-only reranker</div>
+                        </div>
+
+                    </div>
+
+                    <div class="btn-group">
+                        <button type="submit" id="startRerankerBtn" class="btn btn-warning">
+                            <span>▶ Start Reranker</span>
+                        </button>
+                        <button type="button" id="stopRerankerBtn" class="btn btn-danger" disabled>
+                            <span>⏹ Stop Reranker</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="section-divider"></div>
+
+                <h2>📜 Reranker Server Logs</h2>
+                <div class="log-controls">
+                    <button id="clearRerankerLogs" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;">
+                        🗑️ Clear Logs
+                    </button>
+                    <button id="autoScrollReranker" class="btn btn-secondary" style="text-transform: none; letter-spacing: normal;" data-enabled="true">
+                        ⬇️ Auto-scroll: ON
+                    </button>
+                </div>
+                <div class="log-container" id="rerankerLogsContainer">
+                    <div id="reranker-logs">
+                        <div class="log-entry system"><span class="timestamp">--:--:--</span> <span class="content">Waiting for reranker model to start...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom Apps Tab -->
+            <div id="custom-tab" class="tab-content">
+                <h2>🚀 Custom Applications</h2>
+
+                <div class="add-app-form">
+                    <h3 style="margin-bottom: 15px; color: var(--text-primary);">➕ Add New Application</h3>
+                    <form id="addCustomAppForm">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="custom_app_name">App Name (ID)</label>
+                                <input type="text" id="custom_app_name" placeholder="e.g., SD_CPP" required
+                                       pattern="[A-Z0-9_]+" title="Uppercase letters, numbers, and underscores only">
+                                <div class="info-text">Unique identifier (e.g., SD_CPP, COMFYUI)</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="custom_app_path">Executable Path</label>
+                                <input type="text" id="custom_app_path" placeholder="/path/to/run.sh" required>
+                                <div class="info-text">Full path to script or executable</div>
+                            </div>
+
+                            <div class="form-group" style="grid-column: 1 / -1;">
+                                <label for="custom_app_desc">Display Name</label>
+                                <input type="text" id="custom_app_desc" placeholder="e.g., Stable Diffusion CPP" required>
+                                <div class="info-text">Friendly name to display in the UI</div>
+                            </div>
+                        </div>
+
+                        <div class="btn-group">
+                            <button type="submit" class="btn btn-warning">
+                                <span>💾 Save Application</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <h3>📋 Configured Applications</h3>
+                <div id="customAppsList" class="custom-apps-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>Loading custom applications...</p>
+                    </div>
+                </div>
+
+                <!-- Custom App Logs Modal -->
+                <div id="customAppLogsModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="customAppLogsTitle">Application Logs</h3>
+                            <button class="modal-close" onclick="closeCustomAppLogs()">&times;</button>
+                        </div>
+                        <div class="log-controls">
+                            <button id="clearCustomAppLogs" class="btn btn-secondary btn-sm" style="text-transform: none; letter-spacing: normal;">
+                                🗑️ Clear Logs
+                            </button>
+                            <button id="autoScrollCustomApp" class="btn btn-secondary btn-sm" style="text-transform: none; letter-spacing: normal;" data-enabled="true">
+                                ⬇️ Auto-scroll: ON
+                            </button>
+                        </div>
+                        <div class="log-container" id="customAppLogsContainer" style="height: 400px;">
+                            <div id="custom-app-logs">
+                                <div class="log-entry system"><span class="timestamp">--:--:--</span> <span class="content">Select an app to view logs...</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div id="dashboard-tab" class="tab-content">
+                <h2>📊 Inference Analytics Dashboard</h2>
+                <div id="dashboard-content">
+                    <div class="dashboard-loading">
+                        <div class="loading-spinner"></div>
+                        <p>Loading dashboard data...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings-tab" class="tab-content">
+                <h2>⚙️ Environment Settings</h2>
+                <p class="info-text">Manage your .env configuration. Changes are saved immediately to disk.</p>
+
+                <div class="section-divider"></div>
+
+                <div id="settingsList" class="custom-apps-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⏳</div>
+                        <p>Loading settings...</p>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+                <h3>🔄 Binary Update</h3>
+                <p class="info-text">Update llama.cpp binaries to the latest Ubuntu Vulkan x64 release.</p>
+                <div class="btn-group">
+                    <button type="button" id="startUpdateBtn" class="btn btn-warning">
+                        <span>⬇️ Update Binaries</span>
+                    </button>
+                </div>
+                <div id="updateProgress" class="update-progress" style="display: none;">
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" id="updateProgressBar" style="width: 0%;"></div>
+                        <div class="progress-bar-text" id="updateProgressText">0%</div>
+                    </div>
+                </div>
+                <div class="log-controls">
+                    <button id="clearUpdateLogs" class="btn btn-secondary btn-sm" style="text-transform: none; letter-spacing: normal;">
+                        🗑️ Clear Logs
+                    </button>
+                    <button id="autoScrollUpdate" class="btn btn-secondary btn-sm" style="text-transform: none; letter-spacing: normal;" data-enabled="true">
+                        ⬇️ Auto-scroll: ON
+                    </button>
+                </div>
+                <div class="log-container" id="updateLogsContainer">
+                    <div id="update-logs">
+                        <div class="log-entry system"><span class="timestamp">--:--:--</span> <span class="content">Ready to update binaries...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
